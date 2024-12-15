@@ -1,0 +1,362 @@
+-----------------------------------------------seg7_ctrl----------------------------
+
+library IEEE;
+    use IEEE.STD_LOGIC_1164.ALL;
+    use IEEE.NUMERIC_STD.ALL;
+   
+entity seg7_ctler is
+-- 1000,000 generates 10ms refresh rates with 100Mhz (10 ns ) clock freq
+  generic ( G_REFRESH_SCALE_FACTOR : integer:= 100000);
+  Port (
+        clk, rst_n : in std_logic;
+        switch16_i : in std_logic_vector(15 downto 0);
+        common_anode_o : out std_logic_vector(3 downto 0);
+        seg7_cathode_o : out std_logic_vector(6 downto 0)
+  );
+end seg7_ctler;
+
+architecture Behavioral of seg7_ctler is
+
+signal s_switch16_debounced : std_logic_vector(15 downto 0):=(others=>'0');
+ 
+signal s_bcd_value : std_logic_vector(3 downto 0):=(others=>'0');
+signal s_seg7_led_scanner : unsigned(1 downto 0):=(others=>'0');
+signal s_refresh_counter : unsigned(31 downto 0):=(others=>'0');
+
+component key_debouncer is
+port(
+     key_in: in std_logic;
+     clk: in std_logic;
+     key_debounced: out std_logic
+);
+end component;
+
+component bcd_to_7seg_decoder is
+  Port (bcd_i : in std_logic_vector(3 downto 0);
+        seg7_cathode_o : out std_logic_vector(6 downto 0)
+        );
+end component;
+
+begin
+
+-- 16-bit debouncer for generate instantiation
+gen_debounce_16bit : for i in 0 to 15 generate
+    i_key_debouncer : key_debouncer
+        port map (
+        key_in => switch16_i(i),
+        clk => clk,
+        key_debounced => s_switch16_debounced(i)
+        );
+end generate gen_debounce_16bit;
+
+-- process to refresh the 7-SEG LEDs (scan over 4-digit 7-seg)
+process(clk, rst_n)
+begin
+    if (rst_n = '0') then
+        s_refresh_counter <= (others=>'0');
+        s_seg7_led_scanner <= (others=>'0');
+    elsif rising_edge(clk) then
+        if (s_refresh_counter = to_unsigned (G_REFRESH_SCALE_FACTOR, 32)) then
+            s_refresh_counter <= (others=>'0');
+            s_seg7_led_scanner <= s_seg7_led_scanner + 1;
+        else
+            s_refresh_counter <= s_refresh_counter + 1;
+        end if;        
+    end if;
+end process;
+
+process(s_seg7_led_scanner)
+begin
+    case s_seg7_led_scanner is
+    when "00" =>
+        common_anode_o <= "0111";
+        -- LED0 activated (rest off)
+        s_bcd_value <= s_switch16_debounced(3 downto 0);
+        -- sw0
+    when "01" =>
+        common_anode_o <= "1011";
+         -- LED1 activated (rest off)
+        s_bcd_value <= s_switch16_debounced(7 downto 4);
+        -- sw0
+    when "10" =>
+        common_anode_o <= "1101";
+        -- LED2 activated (rest off)
+        s_bcd_value <= s_switch16_debounced(11 downto 8);
+        -- sw0
+    when "11" =>
+        common_anode_o <= "1110";
+        -- LED3 activated (rest off)
+        s_bcd_value <= s_switch16_debounced(15 downto 12);
+        -- sw0
+    when others =>    
+    end case;
+end process;
+
+i_bcd_to_7seg : bcd_to_7seg_decoder
+  Port map (bcd_i => s_bcd_value,
+            seg7_cathode_o => seg7_cathode_o
+            );
+
+
+end Behavioral;
+
+
+
+
+-------------------------------------------------------------step 3----------------------------------------------------------------
+
+-----second counter
+library ieee;
+use ieee.std_logic_1164.ALL;
+use ieee.numeric_std.ALL;
+
+entity Seconds_Counter is
+    Port (
+        clk : in  std_logic;      
+        en_i : in  std_logic;      
+        rst_n : in  std_logic;    
+        seconds_o : out  std_logic_vector (3 downto 0)  
+    );
+end Seconds_Counter;
+
+architecture Behavioral of Seconds_Counter is
+    constant C_ONE_SECOND_SCALE_FACTOR : natural := 100000000;  
+    signal s_counter : natural := 0;
+    signal temp : unsigned(3 downto 0) := (others => '0');  
+ 
+begin
+    process(clk, rst_n, en_i)
+    begin
+    if rst_n = '0' then
+         s_counter <= 0;
+         temp <= (others => '0');
+    else
+       if en_i = '0' then
+            s_counter <= 0;
+            temp <= (others => '0');
+       elsif rising_edge(clk) then  
+            if en_i = '1' then  
+                if s_counter = C_ONE_SECOND_SCALE_FACTOR then
+                    if temp > 8 then
+                        temp <= (others => '0');
+                    else temp <= temp + 1;
+                    end if;
+                    s_counter <= 0;  
+                else
+                     s_counter <= s_counter + 1;  
+                end if;
+             end if;
+        end if;
+    end if;
+    end process;
+   
+    seconds_o <= std_logic_vector(temp);
+   
+end Behavioral;
+
+----bcd_timer
+
+library IEEE;
+use IEEE.STD_LOGIC_1164.ALL;
+use ieee.numeric_std.ALL;
+
+entity bcd_timer is
+  Port (
+  clk, en_i, rst_n: in std_logic;
+  bcd_secs_ones_o, bcd_secs_tens_o, bcd_mins_ones_o, bcd_mins_tens_o : out std_logic_vector (3 downto 0)
+  );
+end bcd_timer;
+
+architecture Behavioral of bcd_timer is
+
+component Seconds_Counter
+Port (
+        clk, en_i, rst_n: in  std_logic;            
+        seconds_o : out  std_logic_vector (3 downto 0)  
+    );
+end component;
+
+constant C_ONE_SECOND_SCALE_FACTOR : integer := 100000000;
+
+--sec ones
+signal secs_ones_counter: std_logic_vector(3 downto 0):= (others => '0');
+
+--sec tens
+signal secs_tens_counter: unsigned (3 downto 0):= (others => '0');
+--sec tens temp
+signal secs_tens_temp: integer:= 0;
+
+--min ones
+signal mins_ones_counter : unsigned (3 downto 0):= (others => '0');
+--min ones signal
+signal mins_ones_temp, mins_ones_temp1: integer:= 0;
+
+--min tens
+signal mins_tens_counter : unsigned (3 downto 0):= (others => '0');
+--min tens temps
+signal  mins_tens_counter_temp, mins_tens_counter_temp1, mins_tens_counter_temp2: integer:= 0;
+
+--second counter temp
+signal s_counter : integer := 0;
+signal temp : unsigned(3 downto 0) := (others => '0'); 
+
+begin
+----sec_ones
+secound_ones: Seconds_Counter port map(clk, en_i, rst_n, bcd_secs_ones_o);
+
+process (clk, rst_n, en_i)
+
+    begin
+ 
+       if rst_n = '0' then  
+           secs_ones_counter <= (others => '0');
+           secs_tens_counter <= (others => '0');
+           mins_ones_counter <= (others => '0');
+           mins_tens_counter <= (others => '0');
+        
+       else
+          if en_i = '1' then
+      if rising_edge(clk) then
+        if s_counter = C_ONE_SECOND_SCALE_FACTOR then
+            s_counter <= 0;
+            if temp = 9 then
+                temp <= (others => '0');
+            else
+                temp <= temp + 1;
+            end if;
+        else
+            s_counter <= s_counter + 1;
+        end if;
+    end if;
+
+    -- Increment tens counter when ones counter reaches 9
+    if temp = 9 then
+        if rising_edge(clk) then
+            if secs_tens_temp = C_ONE_SECOND_SCALE_FACTOR then
+                secs_tens_temp <= 0;
+                if secs_tens_counter = 5 then
+                    secs_tens_counter <= (others => '0');
+                else
+                    secs_tens_counter <= secs_tens_counter + 1;
+                end if;
+            else
+                secs_tens_temp <= secs_tens_temp + 1;
+            end if;
+        end if;
+    end if;
+end if;
+           
+            ----mins_ones
+            if unsigned(secs_tens_counter) = 5 then
+                if rising_edge(clk) then
+                   if mins_ones_temp = C_ONE_SECOND_SCALE_FACTOR then
+                        mins_ones_temp <= 0;
+                        if mins_ones_temp1 = 9 then
+                            mins_ones_temp1 <= 0;
+                            if mins_ones_counter = 9 then
+                                mins_ones_counter <= (others => '0');
+                            else
+                                mins_ones_counter <= mins_ones_counter + 1;
+                            end if;
+
+                        else
+                           mins_ones_temp1<= mins_ones_temp1 + 1;
+                        end if;
+                   else
+                        mins_ones_temp <= mins_ones_temp + 1;
+                   end if;
+               end if;
+            end if;
+           
+            ----mins_tens
+            if unsigned(mins_ones_counter) = 9 then
+                if rising_edge(clk) then
+
+                    if mins_tens_counter_temp = C_ONE_SECOND_SCALE_FACTOR then
+                        mins_tens_counter_temp <= 0;
+                        if mins_tens_counter_temp1 = 9 then
+                            mins_tens_counter_temp1 <= 0;
+                            if mins_tens_counter_temp2 = 5 then
+                                mins_tens_counter_temp2 <= 0;
+                                if mins_tens_counter = 9 then
+                                    mins_tens_counter <= (others =>'0');
+                                else
+                                    mins_tens_counter <= mins_tens_counter + 1;
+                                end if;
+                            else
+                                mins_tens_counter_temp2 <= mins_tens_counter_temp2 + 1;
+                            end if;
+                        else
+                            mins_tens_counter_temp1 <= mins_tens_counter_temp1 + 1;
+                        end if;
+                    else
+                        mins_tens_counter_temp <= mins_tens_counter_temp + 1;
+                    end if;
+                end if;
+             end if;
+         end if; 
+end process;
+bcd_secs_tens_o <= std_logic_vector(secs_tens_counter);
+bcd_mins_ones_o <= std_logic_vector(mins_ones_counter);
+bcd_mins_tens_o <= std_logic_vector(mins_tens_counter);
+
+end Behavioral;
+
+-----------------------------------------------------------------wrapper---------------------------------------------------------------------------
+library IEEE;
+use IEEE.STD_LOGIC_1164.ALL;
+use ieee.numeric_std.ALL;
+
+entity wrapper_timer_7seg is
+  Port (
+  clk : in std_logic;
+  seg : out std_logic_vector(6 downto 0);
+  an : out std_logic_vector(3 downto 0)
+  );
+end wrapper_timer_7seg;
+
+architecture Behavioral of wrapper_timer_7seg is
+
+component seg7_ctler
+ generic ( G_REFRESH_SCALE_FACTOR : integer:= 100000);
+  Port (
+        clk, rst_n : in std_logic;
+        switch16_i : in std_logic_vector(15 downto 0);
+        common_anode_o : out std_logic_vector(3 downto 0);
+        seg7_cathode_o : out std_logic_vector(6 downto 0)
+  );
+end component;
+
+component bcd_timer
+    Port (
+        clk, en_i, rst_n: in std_logic;
+        bcd_secs_ones_o, bcd_secs_tens_o, bcd_mins_ones_o, bcd_mins_tens_o : out std_logic_vector (3 downto 0)
+    );
+end component;
+
+constant factor : integer := 4;
+signal rst_n : std_logic;
+signal s_counter : unsigned(20 downto 0):=(others=> '0');
+signal switch16_i_temp : std_logic_vector(15 downto 0);
+begin
+
+------------------reset generator----------
+process(clk)
+begin
+    if(s_counter = to_unsigned(factor, 21)) then
+        rst_n <= '1';
+    elsif rising_edge(clk) then
+        rst_n <= '0';
+        s_counter <= s_counter + 1;
+    end if;
+end process;
+
+--------- connecting timer to 7 seg----
+
+m1: bcd_timer port map(clk => clk, en_i => '1', rst_n => rst_n, bcd_secs_ones_o => switch16_i_temp(3 downto 0),
+                       bcd_secs_tens_o => switch16_i_temp(7 downto 4), bcd_mins_ones_o => switch16_i_temp(11 downto 8),
+                       bcd_mins_tens_o => switch16_i_temp(15 downto 12));
+m2: seg7_ctler port map(clk => clk, rst_n => rst_n, switch16_i => switch16_i_temp, common_anode_o => an, seg7_cathode_o => seg);
+
+
+end Behavioral;

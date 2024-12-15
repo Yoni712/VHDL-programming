@@ -1,0 +1,111 @@
+library IEEE;
+use IEEE.STD_LOGIC_1164.ALL;
+use ieee.numeric_std.all;
+
+entity Counter is
+  Port (
+  clk, reset, en : in std_logic;
+  counter_out : out integer
+  );
+end Counter;
+
+architecture Behavioral of Counter is
+
+---We made a temporarily signal that will be assigned to the output because if we had instead useed the output directly in the
+-- if statement down below, then we get error in "temp <= temp + 1;" because you can't read from an output.
+signal temp : integer := 0;
+begin
+
+
+process(clk) --- We can do it either with a process or when, but we went with process this time.
+    begin
+   
+   if falling_edge(clk) then
+         if reset = '1'  then
+               temp <= 0;
+         elsif reset = '0' then
+            if en = '1' then
+                temp <= temp + 1;
+            end if;
+         end if;
+   
+   end if;
+end process;
+
+counter_out <= temp;
+
+end Behavioral;
+
+------------------------------------------comparator------------------------------
+
+library IEEE;
+use IEEE.STD_LOGIC_1164.ALL;
+
+entity Comparator is
+generic ( n : integer:= 4);
+ Port (
+        cmp_in1, cmp_in2 : in std_logic_vector (n-1 downto 0);
+        cmp_out: out std_logic
+ );
+end Comparator;
+
+architecture Behavioral of Comparator is
+
+begin
+
+ process(cmp_in1, cmp_in2)
+    begin
+   
+    --comparing the two inputs where if they got the same value, the output will be 0, and if not then the output is 1.
+    if cmp_in1 = cmp_in2 then
+        cmp_out <= '0';
+    else
+        cmp_out <= '1';
+    end if;
+   
+ end process;
+end Behavioral;
+
+
+
+
+-------------------------------Inequality Counter----------------------------------------
+
+
+library IEEE;
+use IEEE.STD_LOGIC_1164.ALL;
+
+entity Inequality_counter is
+generic (n: integer := 4);
+ Port (
+ in1, in2 : in std_logic_vector (n-1 downto 0);
+ clk, reset: in std_logic;
+ ineq_counter_out: out integer
+ 
+ );
+end Inequality_counter;
+
+architecture Behavioral of Inequality_counter is
+
+component counter
+ Port (
+  clk, reset, en : in std_logic;
+  counter_out : out integer
+ );
+end component;
+
+component comparator
+  generic ( n : integer:= 4);
+   Port (
+        cmp_in1, cmp_in2 : in std_logic_vector (n-1 downto 0);
+        cmp_out: out std_logic
+   );
+end component;
+
+signal en_temp : std_logic:= '0';
+begin
+
+m1: comparator port map(in1, in2, en_temp);
+m2: counter port map (clk, reset, en_temp, ineq_counter_out);
+
+end Behavioral;
